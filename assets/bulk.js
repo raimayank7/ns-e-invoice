@@ -133,6 +133,7 @@
         var x = d.d;
         if (!x.date) d.prob.push(t('bk.date', { r: line }));
         if (get(r, 'bstate') && !x.buyer.state) d.prob.push(t('bk.state', { r: line, v: get(r, 'bstate') }));
+        if (mode === 'ewb' && x.buyer.gstin && !NS.gstinCheck(x.buyer.gstin).ok) d.prob.push(t('bk.gstin', { r: line, v: x.buyer.gstin }));
         if (mode === 'ewb') {
           var sub = subCode(get(r, 'sub')), dt = (get(r, 'dtype') || '').toUpperCase().slice(0, 3);
           if (!sub || !DOCS_FOR[sub]) d.prob.push(t('bk.sub', { r: line, v: get(r, 'sub') }));
@@ -224,6 +225,8 @@
       if (draft && draft.seller && draft.seller.name && !bizList.some(function (b) { return key(b.name) === key(draft.seller.name); })) bizList.unshift(Object.assign({ id: '_form' }, draft.seller));
       var sel = $('#bk-biz', box);
       sel.innerHTML = bizList.length ? bizList.map(function (b) { return opt(b.id, b.name + (b.gstin ? ' · ' + b.gstin : '') + (b.id === '_form' ? ' (' + t('bk.fromform') + ')' : ''), ''); }).join('') : '<option value="">' + esc(t('bk.nobiz')) + '</option>';
+      var x = mode === 'ewb' && seller(), pl = $('#pb-place', box);
+      if (x && pl && !pl.value) { pl.value = x.city || ''; $('#pb-state', box).value = x.state || ''; }
     }).catch(function () {});
   }
   function seller() {
@@ -351,7 +354,7 @@
         rows.map(function (r) {
           return '<tr><td class="mono">' + esc(r.no || '—') + '</td><td class="mono">' + esc(ewb ? r.ewb : (r.irn ? r.irn.slice(0, 16) + '…' : '—')) + '</td><td class="mono">' + esc(ewb ? r.ewbTill || '—' : r.ack || '—') + '</td><td>' +
             (r.id ? '<a href="?open=' + encodeURIComponent(r.id) + '#tool">' + esc(t('bk.open')) + '</a>' : '<span class="soft">' + esc(t('bk.notsaved')) + '</span>') + '</td></tr>';
-        }).join('') + '</tbody></table></div>' + (rows.length > have ? '<p class="hint">' + esc(t('bk.h.notsaved')) + '</p>' : '');
+        }).join('') + '</tbody></table></div>' + (rows.length > have && !ewb ? '<p class="hint">' + esc(t('bk.h.notsaved')) + '</p>' : '');
       if (ewb) rows.forEach(function (r) { if (/^\d{12}$/.test(r.ewb)) addPartB({ ewb: r.ewb }); });
       NS.folderWrite(false);
     }).catch(function (e) { NS.toast(t('nosave', { e: e.message }), 'bad'); });

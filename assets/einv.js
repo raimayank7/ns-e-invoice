@@ -23,7 +23,7 @@
   /* words printed on the invoice (English, like the rest of the printout) */
   var P = { irn: 'IRN', ack: 'Ack No.', ackdt: 'Ack Date', ewb: 'E-Way Bill No.', ewbdt: 'E-Way Bill Date', till: 'Valid till', qr: 'e-Invoice QR' };
 
-  function ex(d) { var e = d.einv || (d.einv = { sup: 'B2B', dist: '0', mode: '1', veh: '', vtype: 'R', tid: '', tname: '', tdoc: '', tdate: '', withEwb: false }); if (e.aato == null) e.aato = (d.seller && d.seller.aato) || savedAato(); return e; }
+  function ex(d) { var e = d.einv || (d.einv = { sup: 'B2B', dist: '0', mode: '1', veh: '', vtype: 'R', tid: '', tname: '', tdoc: '', tdate: '', withEwb: false }); if (e.aato == null) e.aato = (d.seller && d.seller.aato) || savedAato(); if (d.type === 'exp' && d.kind) e.sup = d.kind.toUpperCase(); return e; }
   function days(from) { return Math.round((Date.parse(NS.today()) - Date.parse(from)) / 864e5); }
   function dmy(iso) { var m = String(iso || '').match(/^(\d{4})-(\d\d)-(\d\d)/); return m ? m[3] + '/' + m[2] + '/' + m[1] : ''; }
   function digits(s) { return String(s || '').replace(/\D/g, ''); }
@@ -63,7 +63,7 @@
       need(/^[1-9]\d{5}$/.test(digits(who.pin)), pre + '-pin', t('ev.pin'));
       need(!!who.state, pre + '-state', t('ev.state'));
     }
-    if (what === 'einv' && d.kind !== 'tax') bad.push(['d-kind', t('ev.tax')]);
+    if (what === 'einv' && d.kind !== 'tax' && d.type !== 'exp') bad.push(['d-kind', t('ev.tax')]);
     need(NS.gstinCheck(s.gstin).ok && s.gstin.length === 15, 's-gstin', t(what === 'ewb' ? 'ev.ewbseller' : 'ev.sg'));
     need(!!s.name.trim(), 's-name', t('v.bname'));
     place(s, 's');
@@ -101,7 +101,7 @@
       /* the portal refuses an e-way bill for a document more than 180 days old (since 1 Jan 2025) */
       if (days(d.date) > 180) bad.push(['d-date', t('ev.old180')]);
       if (what === 'ewb') {
-        var inside = !d.pos || d.pos === s.state, lim = inside && EWB_LIMIT[s.state] || 50000;
+        var dest = d.pos || b.state, inside = !dest || dest === s.state, lim = inside && EWB_LIMIT[s.state] || 50000;
         if (tt.grand <= lim) note.push(lim > 50000 ? t('ev.smallst', { st: NS.stateName(s.state), v: NS.money(lim, false).replace(/\.00$/, '') }) : t('ev.small'));
         /* since 1 Mar 2024 e-invoice businesses make the e-way bill for a B2B invoice from the IRN */
         if (d.kind === 'tax' && NS.gstinCheck(b.gstin).ok && b.gstin && e.aato !== 'lt5') note.push(t('ev.fromirn'));
@@ -140,6 +140,9 @@
     var items = r2(sum.val), grand = tt.grand;
     out.ValDtls = { AssVal: r2(sum.ass), CgstVal: r2(sum.c), SgstVal: r2(sum.s), IgstVal: r2(sum.i), CesVal: 0, StCesVal: 0, Discount: 0, OthChrg: 0, RndOffAmt: r2(grand - items), TotInvVal: grand };
     if (s.bankAcc) out.PayDtls = put(put({ Nm: clip(s.name, 100), AccDet: clip(s.bankAcc, 18) }, 'FinInsBr', clip(s.bankIfsc, 11)), 'Mode', '');
+    /* export details (export-invoice site, d.exp from export.js): shipping bill, port, currency, country */
+    var x = d.exp;
+    if (exp && x) out.ExpDtls = put(put(put(put(put({ RefClm: x.refund === 'Y' ? 'Y' : 'N' }, 'ShipBNo', clip(x.sbNo, 20)), 'ShipBDt', dmy(x.sbDate)), 'Port', clip(x.port, 10).toUpperCase()), 'ForCur', clip(x.cur, 3).toUpperCase()), 'CntCode', clip(x.country, 2).toUpperCase());
     if (e.withEwb) out.EwbDtls = ewbPart(e, true);
     return [out];
   }
@@ -162,7 +165,7 @@
     var e = ex(d), s = d.seller, b = d.buyer, rows = itemRows(d, tt, false), sa = lines(s.addr), ba = lines(b.addr), to = d.ship && d.ship.addr ? d.ship : null;
     var ta = to ? lines(to.addr) : ba, main = rows.slice().sort(function (x, y) { return y.ass - x.ass; })[0];
     var bill = {
-      userGstin: s.gstin, supplyType: 'O', subSupplyType: +e.sub || (/^EXP/.test(e.sup) ? 3 : 1), subSupplyDesc: +e.sub === 8 ? clip(e.subDesc || 'Others', 20) : '', docType: e.dtype || (d.kind === 'tax' ? 'INV' : 'BIL'),
+      userGstin: s.gstin, supplyType: 'O', subSupplyType: +e.sub || (/^EXP/.test(e.sup) ? 3 : 1), subSupplyDesc: +e.sub === 8 ? clip(e.subDesc || 'Others', 20) : '', docType: e.dtype || (d.kind === 'tax' || d.type === 'exp' ? 'INV' : 'BIL'),
       docNo: String(d.no).toUpperCase(), docDate: dmy(d.date),
       fromGstin: s.gstin, fromTrdName: clip(s.name, 100), fromAddr1: sa[0], fromAddr2: sa[1], fromPlace: clip(s.city, 50), fromPincode: +digits(s.pin),
       actualFromStateCode: +s.state, fromStateCode: +s.state,

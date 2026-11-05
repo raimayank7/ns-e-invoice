@@ -23,6 +23,8 @@
       noLbl: { credit: 'cnno', debit: 'dnno' }, party: 'issuedto', note: { credit: 'cnnote', debit: 'dnnote' }, refLbl: 'ref' },
     /* self invoice: a registered buyer bills itself for a purchase from an unregistered supplier under reverse charge (always GST, RC = Yes) */
     self: { prefix: 'SI', kinds: ['self'], alwaysTax: true, rc: true, rcFixed: true, recv: true, buying: true, status: ['siopen', 'sipaid'], noLbl: 'sino', party: 'supplier', note: 'sinote', refLbl: 'ref' },
+    /* export and SEZ invoice (export-invoice site, extra fields in export.js): always a tax invoice, always IGST; under LUT/bond the GST rate is 0 */
+    exp: { prefix: 'EXP', kinds: ['expwp', 'expwop', 'sezwp', 'sezwop'], title: 'tax', alwaysTax: true, igst: true, copy: 'inv', due: true, pay: true, noLbl: 'no', party: 'billto' },
     cashmemo: { prefix: 'CM', kinds: ['cashmemo'], gstFlag: true, gstOff: true, qr: true, pay: true, paidFirst: true, noLbl: 'cmno', party: 'custto', paper: 'th80' }
   };
   var COPIES = { inv: ['orig', 'dup', 'trip'], invs: ['orig', 'dupsup'], dc: ['dcorig', 'dcdup', 'dctrip'], note: ['orig', 'dupsup'] };
@@ -86,7 +88,7 @@
   function totals(d) {
     var noTax = !taxOn(d);
     var origin = d.seller.state, dest = d.pos || d.buyer.state || origin;
-    var intra = !origin || !dest || origin === dest;
+    var intra = !T.igst && (!origin || !dest || origin === dest);   /* exports and SEZ supplies are inter-state (IGST Act s.7(5)) */
     var tt = { rows: [], taxable: 0, cgst: 0, sgst: 0, igst: 0, intra: intra, noTax: noTax, sum: {} };
     d.items.forEach(function (it) {
       var q = num(it.qty), rate = num(it.rate);
@@ -554,6 +556,8 @@
       if (!String(doc.buyer.gstin || '').trim() && (!String(doc.buyer.addr || '').trim() || !doc.buyer.state)) probs.push([doc.buyer.addr ? 'b-state' : 'b-addr', t('v.naddr')]);
     }
     if (type === 'self' && !doc.seller.gstin) probs.push(['s-gstin', t('v.sigst')]);
+    if (T.igst && /wop$/.test(doc.kind) && tt.rows.some(function (r) { return r.g; })) probs.push(['it-gst-0', t('v.lut0')]);
+    if (T.igst && !doc.seller.gstin) probs.push(['s-gstin', t('v.tax')]);
     if (type === 'self' && !doc.recv) probs.push(['d-recv', t('v.recv')]);
     if (!doc.seller.name.trim()) probs.push(['s-name', t('v.bname')]);
     if (!tt.rows.length) probs.push(['it-desc-0', t('v.item')]);
@@ -764,6 +768,11 @@
     function render() { buildEditor(); fillForm(); draw(); setStatus(); labelButtons(); if (histOpen) renderHistory(); }
     render();
     document.addEventListener('ns-lang', render);
+    var typed = false;
+    ed.addEventListener('input', function () { typed = true; });
+    /* the form shows at once (it used to wait for the data home, up to 6 s on a first visit, while the preview already showed);
+           saved defaults arrive later and never overwrite what the visitor has started typing */
+    if (!/[?&](open|from)=/.test(location.search)) root.classList.add('live');
     NSStore.ready().then(function () {
       return NSStore.meta('settings').then(function (c) { CFG = c || {}; }, function () {});
     }).then(function () {
@@ -779,6 +788,7 @@
         return fromQuote(from).then(function (ok) { if (ok) { render(); saveDraft(); return suggestNumber(true); } });
       }
       if (dr) return;
+      if (typed) return suggestNumber(false);
       /* a fresh start: the hub's defaults and the default business */
       var seller = doc.seller;
       doc = blank(); doc.seller = seller;
